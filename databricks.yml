@@ -1,5 +1,5 @@
 bundle:
-  name: ds-geo-tab
+  name: ds-demand-metrics
 
 # Define what files to sync
 sync:
@@ -22,18 +22,18 @@ targets:
     mode: production
     workspace:
       host: https://adb-3191297496093791.11.azuredatabricks.net
-      root_path: /Shared/DS_Geotab
+      root_path: /Shared/DS_Demand_Metrics
 
   # UAT environment
   uat:
     mode: production
     workspace:
       host: https://adb-3159699261309283.3.azuredatabricks.net
-      root_path: /Shared/DS_Geotab
+      root_path: /Shared/DS_Demand_Metrics
 
   # Production environment
   prod:
     mode: production
     workspace:
       host: https://adb-2276992795741358.18.azuredatabricks.net
-      root_path: /Shared/DS_Geotab
+      root_path: /Shared/DS_Demand_Metrics

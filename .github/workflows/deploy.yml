@@ -1,4 +1,4 @@
-name: Deploy DS_Geotab
+name: Deploy DS_Demand_Metrics
 
 on:
   # Automatic triggers - commented out for now
