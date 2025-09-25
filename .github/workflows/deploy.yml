@@ -1,0 +1,108 @@
+name: Deploy DS_Geotab
+
+on:
+  # Automatic triggers - commented out for now
+  # push:
+  #   branches: [ main, dev, uat ]
+  
+  # Manual trigger with environment selection
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install Databricks CLI
+      run: |
+        curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+    
+    - name: Determine environment
+      id: get-env
+      run: |
+        # Use input if provided (manual trigger), otherwise use branch-based logic
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "env=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          echo "Using manually selected environment: ${{ github.event.inputs.environment }}"
+        else
+          # Branch-based logic for automatic triggers (when enabled)
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "env=prod" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/uat" ]]; then
+            echo "env=uat" >> $GITHUB_OUTPUT
+          else
+            echo "env=dev" >> $GITHUB_OUTPUT
+          fi
+          echo "Using branch-based environment selection"
+        fi
+        echo "Deploying to: ${{ steps.get-env.outputs.env }}"
+    
+    - name: Debug Connection
+      continue-on-error: true  # Don't fail the workflow if debug fails
+      env:
+        DATABRICKS_HOST: ${{ steps.get-env.outputs.env == 'dev' && secrets.DATABRICKS_HOST_DEV || steps.get-env.outputs.env == 'uat' && secrets.DATABRICKS_HOST_UAT || secrets.DATABRICKS_HOST_PROD }}
+        DATABRICKS_TOKEN: ${{ steps.get-env.outputs.env == 'dev' && secrets.DATABRICKS_TOKEN_DEV || steps.get-env.outputs.env == 'uat' && secrets.DATABRICKS_TOKEN_UAT || secrets.DATABRICKS_TOKEN_PROD }}
+      run: |
+        echo "=== Debug Information ==="
+        echo "Environment: ${{ steps.get-env.outputs.env }}"
+        echo "Branch: ${{ github.ref }}"
+        echo "Event: ${{ github.event_name }}"
+        echo "Host: ${DATABRICKS_HOST}"
+        echo "Host length: ${#DATABRICKS_HOST}"
+        echo "Token length: ${#DATABRICKS_TOKEN}"
+        echo "Token first 4 chars: ${DATABRICKS_TOKEN:0:4}"
+        
+        echo ""
+        echo "=== Testing API Connection ==="
+        response=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X GET "$DATABRICKS_HOST/api/2.0/current-user" \
+          -H "Authorization: Bearer $DATABRICKS_TOKEN" \
+          -H "Content-Type: application/json")
+        
+        echo "API Response: $response"
+        
+        echo ""
+        echo "=== Checking Workspace Access ==="
+        workspace_response=$(curl -s -X GET "$DATABRICKS_HOST/api/2.0/workspace/get-status" \
+          -H "Authorization: Bearer $DATABRICKS_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"path": "/Shared"}')
+        
+        echo "Workspace Response: $workspace_response"
+        
+        echo ""
+        echo "=== Checking databricks.yml ==="
+        cat databricks.yml || echo "Could not read databricks.yml"
+    
+    - name: Deploy to Databricks
+      env:
+        DATABRICKS_HOST: ${{ steps.get-env.outputs.env == 'dev' && secrets.DATABRICKS_HOST_DEV || steps.get-env.outputs.env == 'uat' && secrets.DATABRICKS_HOST_UAT || secrets.DATABRICKS_HOST_PROD }}
+        DATABRICKS_TOKEN: ${{ steps.get-env.outputs.env == 'dev' && secrets.DATABRICKS_TOKEN_DEV || steps.get-env.outputs.env == 'uat' && secrets.DATABRICKS_TOKEN_UAT || secrets.DATABRICKS_TOKEN_PROD }}
+      run: |
+        echo "=========================================="
+        echo "Deploying to ${{ steps.get-env.outputs.env }} environment"
+        echo "From branch: ${{ github.ref_name }}"
+        echo "Triggered by: ${{ github.event_name }}"
+        echo "=========================================="
+        
+        # Try normal deploy first
+        if ! databricks bundle deploy -t ${{ steps.get-env.outputs.env }} --auto-approve; then
+          echo "Deploy failed, likely due to lock. Attempting with --force-lock..."
+          databricks bundle deploy -t ${{ steps.get-env.outputs.env }} --auto-approve --force-lock
+        fi
